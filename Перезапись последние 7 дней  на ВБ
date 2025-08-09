@@ -1,0 +1,86 @@
+import requests
+import pandas as pd
+from datetime import date, datetime, timedelta
+import os
+
+# Шаг 1. Скачиваем Заказы ВБ за последние 7 дней
+
+# Динамическая дата 7 дней назад
+today = datetime.now().date()
+seven_days_ago = today - timedelta(days=7)
+date_from_str = seven_days_ago.strftime('%Y-%m-%d')
+# URL метода и API ЛК ВБ 
+url = "https://statistics-api.wildberries.ru/api/v1/supplier/orders"
+
+# Если требуется авторизация, добавьте headers с токеном или куки
+headers = {
+    "Authorization": "хххх",  # замените на ваш токен
+    "User-Agent": "Mozilla/5.0",
+    "Accept": "application/json"
+}
+
+params = {
+    "dateFrom": date_from_str
+}
+
+response = requests.get(url, headers=headers, params=params)
+
+# Запрос
+data = response.json()  # data — список словарей
+# Преобразуем список словарей в DataFrame
+df = pd.DataFrame(data)
+
+    
+# Сохраняем в Excel файл
+df.to_excel(r'\\...\Заказы ВБ.xlsx', index=False)
+# print(df.head())
+
+# Шаг 2. Перезапись свежих данных в накопительный файл
+# Пути к файлам Excel
+accum_filename = r'\\...\Заказы_WB_ГТ_2025.xlsx'
+filename = r'\\...\Заказы ВБ.xlsx'
+
+# Читаем накопительный файл
+df_accum = pd.read_excel(accum_filename)
+
+# Преобразуем даты
+df_accum['lastChangeDate'] = pd.to_datetime(df_accum['lastChangeDate'], errors='coerce')
+df_accum['date'] = pd.to_datetime(df_accum['date'], errors='coerce').dt.date
+
+# Читаем свежие данные
+df_new = pd.read_excel(filename)
+
+# Преобразуем даты
+df_new['lastChangeDate'] = pd.to_datetime(df_new['lastChangeDate'], errors='coerce')
+df_new['date'] = pd.to_datetime(df_new['date'], errors='coerce').dt.date 
+
+# Фильтруем свежие данные по isCancel == False
+df_new = df_new[df_new['isCancel'] == False]
+
+# Убедимся, что srid уникален в df_new
+df_new.drop_duplicates(subset='srid', inplace=True)
+
+# Устанавливаем srid как индекс для удобства
+df_accum.set_index('srid', inplace=True)
+df_new.set_index('srid', inplace=True)
+
+# Обновляем существующие записи
+df_accum.update(df_new)
+
+# Добавляем новые записи, которых нет в df_accum
+df_accum = pd.concat([df_accum, df_new[~df_new.index.isin(df_accum.index)]])
+
+# Сбрасываем индекс, чтобы srid снова стал столбцом
+df_accum.reset_index(inplace=True)
+
+# Оставляем только нужные столбцы
+columns_to_keep = ['date', 'lastChangeDate', 'warehouseType', 'nmId', 'priceWithDisc', 'srid']
+df_accum = df_accum[columns_to_keep]
+
+print(df_accum['date'].tail(1)) # выводим дату последней строки для наглядности
+
+# Записываем обратно в Excel
+df_accum.to_excel(accum_filename, index=False)
+
+print('Файл накопления обновлён успешно.')
+
