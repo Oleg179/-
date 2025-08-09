@@ -1,0 +1,191 @@
+ЧАСТЬ 1 скачиваем первые 3 месяца
+
+# Метод Заказы ОЗОН  FBO или FBS CLIENT_ID = ""  за выбранный период макс 3 месяца
+# меняем в "delivery_schema": ["fbs"] на fbo и так же скачиваем в другой файл
+import requests
+import pandas as pd
+from datetime import datetime
+import time
+
+# Данные из ЛК Озон
+CLIENT_ID = "1111"
+API_KEY = "хххх"
+
+headers = {
+    "Client-Id": CLIENT_ID,
+    "Api-Key": API_KEY,
+    "Content-Type": "application/json"
+}
+
+# 1. Запрос на генерацию отчёта и получение 'code'
+url_create = "https://api-seller.ozon.ru/v1/report/postings/create"
+payload_create = {
+    "filter": {
+        "processed_at_from": "2025-01-01T00:00:00.000Z",
+        "processed_at_to": "2025-04-01T00:00:00.000Z",
+        "delivery_schema": ["fbs"],
+        "sku": [],
+        "cancel_reason_id": [],
+        "offer_id": "",
+        "status_alias": [],
+        "statuses": [],
+        "title": ""
+    },
+    "language": "DEFAULT"
+}
+
+response_create = requests.post(url_create, json=payload_create, headers=headers)
+response_create.raise_for_status()
+data_create = response_create.json()
+# print("Ответ создания отчёта:", data_create)
+
+# Извлекаем code отчёта
+report_code = data_create.get("result", {}).get("code")
+if not report_code:
+    raise Exception("Не удалось получить code отчёта")
+
+# print(f"Code отчёта: {report_code}")
+
+# 2. Проверяем статус отчёта
+url_info = "https://api-seller.ozon.ru/v1/report/info"
+payload_info = {"code": report_code}
+
+while True:
+    response_info = requests.post(url_info, json=payload_info, headers=headers)
+    response_info.raise_for_status()
+    info_data = response_info.json()
+    print("Ответ статуса отчёта:", info_data)
+
+    result = info_data.get("result")
+    if not result:
+        print("Нет данных в ответе, повторяем запрос...")
+        time.sleep(10)
+        continue
+
+    status = result.get("status")
+    print(f"Статус отчёта: {status}")
+
+    if status == "success":
+        file_url = result.get("file")
+        if not file_url:
+            raise Exception("Отчёт готов, но ссылка на файл отсутствует")
+#        print(f"Отчёт готов, скачиваем файл: {file_url}")
+        break
+    elif status == "ERROR":
+        error_msg = result.get("error", "Неизвестная ошибка")
+        raise Exception(f"Ошибка при формировании отчёта: {error_msg}")
+    else:
+        print("Отчёт ещё не готов, ждём 10 секунд...")
+        time.sleep(10)
+
+# 3. Скачиваем CSV файл
+response_file = requests.get(file_url)
+response_file.raise_for_status()
+
+accum_filename = r'\\...\Ozon_FBS_2025.csv'
+
+# accum_filename['Принят в обработку'] = accum_filename['Принят в обработку'].dt.strftime('%d.%m.%Y')
+with open(accum_filename, "wb") as f:
+    f.write(response_file.content)
+
+# print(f"Файл отчёта сохранён как {filename}")
+# Читаем CSV, укажите правильную кодировку и разделитель, если нужно
+df = pd.read_csv(accum_filename, sep=';', encoding='utf-8-sig', on_bad_lines='skip')
+
+# Смотрим в каком формате записна дата для коректного парсинга со сл. частью данных
+print(df['Принят в обработку'].dtype)
+print(df['Принят в обработку'].tail(1))
+
+ЧАСТЬ 2 дополняем файл следующими месяцами 
+
+# Метод Заказы ОЗОН  FBO или FBS CLIENT_ID = ""  за выбранный период макс 3 месяца довнесение строк в файл accum_filename
+# меняем в "delivery_schema": ["fbs"] на fbo и так же скачиваем в другой файл
+import requests
+import pandas as pd
+from datetime import datetime
+import time
+import os
+from io import BytesIO
+
+# Ваши данные
+CLIENT_ID = "1111"
+API_KEY = "хххх"
+
+headers = {
+    "Client-Id": CLIENT_ID,
+    "Api-Key": API_KEY,
+    "Content-Type": "application/json"
+}
+
+def get_report():
+    payload_create = {
+        "filter": {
+            "processed_at_from": "2025-07-01T00:00:00.000Z",  # Дата начала
+            "processed_at_to": "2025-08-01T00:00:00.000Z",    # Дата окончания
+            "delivery_schema": ["fbs"],
+            "sku": [],
+            "cancel_reason_id": [],
+            "offer_id": "",
+            "status_alias": [],
+            "statuses": [],
+            "title": ""
+        },
+        "language": "DEFAULT"
+    }
+
+    url_create = "https://api-seller.ozon.ru/v1/report/postings/create"
+    response_create = requests.post(url_create, json=payload_create, headers=headers)
+    response_create.raise_for_status()
+    data_create = response_create.json()
+    report_code = data_create.get("result", {}).get("code")
+    if not report_code:
+        raise Exception("Не удалось получить code отчёта")
+
+    url_info = "https://api-seller.ozon.ru/v1/report/info"
+    payload_info = {"code": report_code}
+
+    while True:
+        response_info = requests.post(url_info, json=payload_info, headers=headers)
+        response_info.raise_for_status()
+        info_data = response_info.json()
+        result = info_data.get("result")
+        if not result:
+            print("Нет данных в ответе, повторяем запрос...")
+            time.sleep(10)
+            continue
+
+        status = result.get("status")
+        if status == "success":
+            file_url = result.get("file")
+            if not file_url:
+                raise Exception("Отчёт готов, но ссылка на файл отсутствует")
+            break
+        elif status == "ERROR":
+            error_msg = result.get("error", "Неизвестная ошибка")
+            raise Exception(f"Ошибка при формировании отчёта: {error_msg}")
+        else:
+            print("Отчёт ещё не готов, ждём 10 секунд...")
+            time.sleep(10)
+
+    response_file = requests.get(file_url)
+    response_file.raise_for_status()
+    return response_file.content
+
+def append_to_csv(csv_path, csv_bytes, sep=';'):
+    df_new = pd.read_csv(BytesIO(csv_bytes), encoding='utf-8-sig', sep=sep)
+
+    if os.path.exists(csv_path):
+        df_existing = pd.read_csv(csv_path, encoding='utf-8-sig', sep=sep)
+        df_combined = pd.concat([df_existing, df_new], ignore_index=True)
+        df_combined.drop_duplicates(inplace=True)  # опционально
+    else:
+        df_combined = df_new
+
+    df_combined.to_csv(csv_path, index=False, sep=sep, encoding='utf-8-sig')
+    print(f"Данные добавлены в файл {csv_path}")
+
+
+csv_file = r'\\...\Ozon_FBS_2025.csv'  # заменить на путь к вашему файлу
+
+csv_content = get_report()
+append_to_csv(csv_file, csv_content)
