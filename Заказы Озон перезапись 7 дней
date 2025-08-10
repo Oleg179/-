@@ -1,0 +1,149 @@
+Часть 1 запрос на получение кода и скачивание файла за опред. дни
+
+import requests
+import pandas as pd
+from datetime import datetime, timedelta
+import time
+import chardet
+# Заказы ОЗОН последние 7 дней FBO или FBS 
+# меняем "delivery_schema": ["fbo"] на fbs
+today = datetime.now().date()
+seven_days_ago = today - timedelta(days=7)
+
+def to_wb_api_format(date_obj):
+    # Преобразуем date в формат ISO с временем 00:00:00.000Z
+    # date_obj — объект date, преобразуем в datetime с временем 00:00:00
+    dt = datetime.combine(date_obj, datetime.min.time())
+    # Форматируем в строку с миллисекундами и Z
+    return dt.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
+
+today_str = to_wb_api_format(today)
+seven_days_ago_str = to_wb_api_format(seven_days_ago)
+# Ваши данные
+CLIENT_ID = "1111"
+API_KEY = "хххх"
+
+headers = {
+    "Client-Id": CLIENT_ID,
+    "Api-Key": API_KEY,
+    "Content-Type": "application/json"
+}
+
+# 1. Запрос на генерацию отчёта и получение 'code'
+url_create = "https://api-seller.ozon.ru/v1/report/postings/create"
+payload_create = {
+    "filter": {
+        "processed_at_from": seven_days_ago_str,
+        "processed_at_to": today_str,
+        "delivery_schema": ["fbo"],
+        "sku": [],
+        "cancel_reason_id": [],
+        "offer_id": "",
+        "status_alias": [],
+        "statuses": [],
+        "title": ""
+    },
+    "language": "DEFAULT"
+}
+
+response_create = requests.post(url_create, json=payload_create, headers=headers)
+response_create.raise_for_status()
+data_create = response_create.json()
+# print("Ответ создания отчёта:", data_create)
+
+# Извлекаем code отчёта
+report_code = data_create.get("result", {}).get("code")
+if not report_code:
+    raise Exception("Не удалось получить code отчёта")
+
+# print(f"Code отчёта: {report_code}")
+
+# 2. Проверяем статус отчёта
+url_info = "https://api-seller.ozon.ru/v1/report/info"
+payload_info = {"code": report_code}
+
+while True:
+    response_info = requests.post(url_info, json=payload_info, headers=headers)
+    response_info.raise_for_status()
+    info_data = response_info.json()
+#    print("Ответ статуса отчёта:", info_data)
+
+    result = info_data.get("result")
+    if not result:
+        print("Нет данных в ответе, повторяем запрос...")
+        time.sleep(10)
+        continue
+
+    status = result.get("status")
+    print(f"Статус отчёта: {status}")
+
+    if status == "success":
+        file_url = result.get("file")
+        if not file_url:
+            raise Exception("Отчёт готов, но ссылка на файл отсутствует")
+#        print(f"Отчёт готов, скачиваем файл: {file_url}")
+        break
+    elif status == "ERROR":
+        error_msg = result.get("error", "Неизвестная ошибка")
+        raise Exception(f"Ошибка при формировании отчёта: {error_msg}")
+    else:
+        print("Отчёт ещё не готов, ждём 10 секунд...")
+        time.sleep(10)
+
+# 3. Скачиваем CSV файл
+response_file = requests.get(file_url)
+response_file.raise_for_status()
+
+filename = r'\\...\Заказы Озон FBO.csv'
+with open(filename, "wb") as f:
+    f.write(response_file.content)
+
+print(f"Файл отчёта сохранён как {filename}")
+
+Часть 2 кусок кода о перезаписи 7 дней
+
+accum_filename = r'\\...\Ozon FBO.csv'
+
+filename = r'\\...\Заказы Озон FBO.csv'             # замените на ваш путь
+
+# Читаем накопительный файл
+df_accum = pd.read_csv(accum_filename, sep=';', encoding='UTF-8-SIG', quotechar='"', on_bad_lines='skip')
+
+# ---  удаляем дубликаты в df_accum по всем столбцам ---
+df_accum = df_accum.drop_duplicates().reset_index(drop=True)
+
+# Очистка
+df_accum['Принят в обработку'] = df_accum['Принят в обработку'].astype(str).str.strip().str.strip("'").str.strip()
+
+# Парсим дату (без format — чтобы не ломало на разных форматах)
+df_accum['Принят в обработку'] = pd.to_datetime(df_accum['Принят в обработку'], errors='coerce', dayfirst=True)
+
+# Читаем новые данные
+df_new = pd.read_csv(filename, sep=';', encoding='utf-8-sig', quotechar='"', on_bad_lines='skip')
+
+df_new['Принят в обработку'] = df_new['Принят в обработку'].astype(str).str.strip().str.strip("'").str.strip()
+
+df_new['Принят в обработку'] = pd.to_datetime(df_new['Принят в обработку'], errors='coerce', dayfirst=False)
+
+# Фильтрация накопленных данных — исключаем последние 8 дней
+today_start = pd.Timestamp.now().normalize()
+seven_days_ago = today_start - pd.Timedelta(days=7)
+df_accum_filtered = df_accum[~df_accum['Принят в обработку'].between(seven_days_ago, today_start)]
+
+# Объединяем
+df_updated = pd.concat([df_accum_filtered, df_new], ignore_index=True)
+
+# Форматируем дату в нужный строковый формат до записи в файл
+df_updated['Принят в обработку'] = df_updated['Принят в обработку'].dt.strftime('%d.%m.%Y')
+
+# Фильтруем записи, оставляя только те, где isCancel равно Ложь
+df_updated = df_updated[df_updated['Статус'] != 'Отменён']
+
+# Оставляем только нужные столбцы
+columns_to_keep = ['Номер отправления', 'Принят в обработку', 'Статус', 'Артикул', 'Ваша цена', 'Количество', 'Сумма отправления']
+df_updated = df_updated[columns_to_keep]
+
+print(df_updated['Принят в обработку'].tail(1))
+
+# Записываем обратно
+df_updated.to_csv(accum_filename, sep=';', index=False, encoding='UTF-8-SIG', quotechar='"')
