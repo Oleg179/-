@@ -1,0 +1,149 @@
+Шаг 1 
+import requests
+import pandas as pd
+from datetime import datetime, date, timedelta
+import time
+import shutil
+
+# Заказы Яндекс Галеон трейд FBO  и FBS 7 дней
+
+today = datetime.now().date()
+today_str = today.isoformat()
+today_folder = today.strftime('%Y.%m.%d')
+seven_days_ago = today - timedelta(days=7)
+seven_days_ago_str = seven_days_ago.isoformat()
+
+# 1. Запрос на генерацию отчёта и получение report_id
+url_generate = "https://api.partner.market.yandex.ru/reports/united-orders/generate"
+# Токен и данные личного кабинета
+headers = {"Api-Key":'ACMA:хххх',
+    "Content-Type": "application/json"}
+
+payload = {
+    "businessId": "1111",
+    "dateFrom": seven_days_ago_str,
+    "dateTo": today_str
+}
+
+response = requests.post(url_generate, json=payload, headers=headers)
+response.raise_for_status()
+data = response.json()
+
+report_id = data.get('result', {}).get('reportId')
+if not report_id:
+    raise Exception("Не удалось получить reportId из ответа")
+
+# print(f"Report ID: {report_id}")
+
+# 2. Формирование запроса на получение отчета, ожидание готовности отчёта
+url_info = f"https://api.partner.market.yandex.ru/reports/info/{report_id}"
+
+while True:
+    response_info = requests.get(url_info, headers=headers)
+    response_info.raise_for_status()
+    info_data = response_info.json()
+
+    status = info_data.get('result', {}).get('status')
+    print(f"Статус отчёта: {status}")
+
+    if status == 'DONE':
+        print("Отчёт готов:")
+#        print(info_data.get('result'))
+        break
+    elif status == 'ERROR':
+        raise Exception("Ошибка при формировании отчёта")
+    else:
+        print("Отчёт ещё не готов, ждём 10 секунд...")
+        time.sleep(10)
+
+# 3. Скачиваем файл отчёта по ссылке себе в папку
+file_url = info_data['result']['file']
+# print(f"Скачиваем файл отчёта по ссылке: {file_url}")
+
+response_file = requests.get(file_url, headers=headers)
+response_file.raise_for_status()
+
+# Сохраняем файл локально
+filename = r'\\...\Отчет ЯМ ГТ 7 дней.xlsx'
+with open(filename, "wb") as f:
+    f.write(response_file.content)
+    
+
+# print(filename)
+print(f"Отчёт сохранён в файл")
+
+Шаг 2
+# Запись нужного листа из стандартного отчета 
+filename = r'\\SRV-DATA1\Data\Департамент Маркетинга\Отдел аналитики\Файлообменник\БашкатовОС\Python Заказы на МП\Яндекс\Отчет ЯМ ГТ 7 дней.xlsx'
+sheet_name = 'Транзакции по заказам и товарам'
+
+# Читаем лист, пропуская первые 8 строк
+df = pd.read_excel(filename, sheet_name=sheet_name, skiprows=8)
+
+# Удаляем строку с индексом 0
+df = df.drop(index=0).reset_index(drop=True)
+
+# Фильтрация по столбцу 'Дата оформления' — оставляем строки, где есть '2025'
+# df = df[df['Дата оформления'].astype(str).str.contains('2025')]
+
+# Фильтрация по столбцу 'Статус товара' — оставляем только нужные статусы
+allowed_statuses = ['Доставлен покупателю', 'Отгружен', 'Оформлен']
+df = df[df['Статус товара'].isin(allowed_statuses)]
+
+# Сброс индексов после фильтрации
+df = df.reset_index(drop=True)
+
+df['Дата оформления'] = pd.to_datetime(df['Дата оформления'], format='%d.%m.%Y', errors='coerce')
+
+# Сохраняем результат в новый файл
+output_file = r'\\...\Яндекс\ЯМ ГТ 7 дней.xlsx'
+with pd.ExcelWriter(output_file, engine='openpyxl') as writer:
+    df.to_excel(writer, sheet_name=sheet_name, index=False)
+
+print(f'Файл сохранён как {output_file}')
+
+Шаг 3
+# Перезапись новых данных в общий файл ЯМ ГТ 2025
+accum_filename = r'\\...\ЯМ_ГТ_2025.xlsx'  # исходный файл с накопленными данными
+output_file = r'\\...\Яндекс\ЯМ ГТ 7 дней.xlsx'     # файл с новыми/обновлёнными данными
+
+# Читаем данные из обоих файлов 
+df_accum = pd.read_excel(accum_filename)
+df_output = pd.read_excel(output_file)
+
+df_accum['Дата оформления'] = pd.to_datetime(df_accum['Дата оформления'], format='%d.%m.%Y', errors='coerce')
+
+# --- Шаг 1: удаляем дубликаты в df_accum по всем столбцам ---
+df_accum = df_accum.drop_duplicates().reset_index(drop=True)
+
+# --- Шаг 2: обновляем данные в df_accum по ключам 'Номер заказа' и 'Ваш SKU' ---
+
+# Создадим индекс из двух столбцов для удобного обновления
+df_accum.set_index(['Номер заказа', 'Ваш SKU'], inplace=True)
+df_output.set_index(['Номер заказа', 'Ваш SKU'], inplace=True)
+
+# Обновляем или добавляем строки из df_output в df_accum
+df_accum.update(df_output)
+
+# Добавляем новые строки из df_output, которых ещё нет в df_accum
+new_rows = df_output.loc[~df_output.index.isin(df_accum.index)]
+df_accum = pd.concat([df_accum, new_rows])
+
+# Сбросим индекс обратно в столбцы
+df_accum = df_accum.reset_index()
+
+# Добавляем новый столбец 'Цена, руб.' — произведение 'Ваша цена (за шт.), ₽' и 'Доставлено или возвращено'
+df_accum['Цена, руб.'] = df_accum['Ваша цена (за шт.), ₽'].fillna(0) * df_accum['Доставлено или возвращено'].fillna(0)
+
+# Оставляем только нужные столбцы
+columns_to_keep = ['Номер заказа', 'Дата оформления', 'Модели работы', 'Статус товара', 'Ваш SKU', 'Ваша цена (за шт.), ₽', 'Доставлено или возвращено', 'Цена, руб.']
+df_accum= df_accum[columns_to_keep]
+
+# Фильтруем DataFrame по дате оформления
+df_accum = df_accum[df_accum['Дата оформления'] >= '2025-01-01']
+
+# --- Шаг 3: сохраняем обновлённый DataFrame обратно в исходный файл ---
+df_accum.to_excel(accum_filename, index=False)
+
+print(f'Файл "{accum_filename}" успешно обновлён и сохранён.')
+print(df_accum['Дата оформления'].max())  # Выводим на печать макс. дату оформления
