@@ -1,0 +1,73 @@
+# Метод Остатки на складе Яндекс 
+import requests
+import pandas as pd
+from datetime import datetime, timedelta
+import time
+import shutil
+
+today = datetime.now().date()
+today_str = today.isoformat()
+yesterday = today - timedelta(days=1)
+yesterday_str = yesterday.isoformat()
+date_report = today.strftime('%d.%m')
+
+# 1. Запрос на генерацию отчёта и получение report_id
+url_generate = "https://api.partner.market.yandex.ru/reports/stocks-on-warehouses/generate"
+# Токен и данные личного кабинета
+headers = {"Api-Key":'ACMA:хххх',
+    "Content-Type": "application/json"}
+
+payload = {
+    "campaignId": "1111", # ИД магазина продажи по FB
+    "reportDate": today_str
+}
+
+response = requests.post(url_generate, json=payload, headers=headers)
+response.raise_for_status()
+data = response.json()
+
+report_id = data.get('result', {}).get('reportId')
+if not report_id:
+    raise Exception("Не удалось получить reportId из ответа")
+
+print(f"Report ID: {report_id}")
+
+# 2. Формирование запроса на получение отчета, ожидание готовности отчёта
+url_info = f"https://api.partner.market.yandex.ru/reports/info/{report_id}"
+
+while True:
+    response_info = requests.get(url_info, headers=headers)
+    response_info.raise_for_status()
+    info_data = response_info.json()
+
+    status = info_data.get('result', {}).get('status')
+    print(f"Статус отчёта: {status}")
+
+    if status == 'DONE':
+        print("Отчёт готов:")
+#        print(info_data.get('result'))
+        break
+    elif status == 'ERROR':
+        raise Exception("Ошибка при формировании отчёта")
+    else:
+        print("Отчёт ещё не готов, ждём 15 секунд...")
+        time.sleep(15)
+
+# 3. Скачиваем файл отчёта по ссылке себе в папку
+file_url = info_data['result']['file']
+# print(f"Скачиваем файл отчёта по ссылке: {file_url}")
+
+response_file = requests.get(file_url, headers=headers)
+response_file.raise_for_status()
+
+# Сохраняем файл локально
+filename = rf'\\...\Остатки ЯМ  {date_report}.xlsx'
+with open(filename, "wb") as f:
+    f.write(response_file.content)
+
+# Копируем файл в другое место   
+filename2 = r'\\...\Остатки ЯМ.xlsx'
+shutil.copy(filename, filename2)
+
+# print(f"Отчёт сохранён в файл: {filename}")
+print(f"Отчёт сохранён в файл")
