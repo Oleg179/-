@@ -1,0 +1,75 @@
+# Заказы Яндекс и FBO  и FBS 1 последний день с записью в два места
+
+import requests
+import pandas as pd
+from datetime import datetime, date, timedelta
+import time
+import shutil
+
+today = datetime.now().date()
+today_folder = today.strftime('%Y.%m.%d')
+yesterday = today - timedelta(days=1)
+yesterday_str = yesterday.isoformat()
+date_report = yesterday.strftime('%d.%m')
+
+# 1. Запрос на генерацию отчёта и получение report_id
+
+url_generate = "https://api.partner.market.yandex.ru/reports/united-orders/generate"
+# Токен и данные личного кабинета
+headers = {"Api-Key":'ACMA:xxxx',
+    "Content-Type": "application/json"}
+
+payload = {
+    "businessId": "1111", # общий ИД от всех магазинов
+    "dateFrom": yesterday_str,
+    "dateTo": yesterday_str
+}
+
+response = requests.post(url_generate, json=payload, headers=headers)
+response.raise_for_status()
+data = response.json()
+
+report_id = data.get('result', {}).get('reportId')
+if not report_id:
+    raise Exception("Не удалось получить reportId из ответа")
+
+# print(f"Report ID: {report_id}")
+
+# 2. Формирование запроса на получение отчета, ожидание готовности отчёта
+url_info = f"https://api.partner.market.yandex.ru/reports/info/{report_id}"
+
+while True:
+    response_info = requests.get(url_info, headers=headers)
+    response_info.raise_for_status()
+    info_data = response_info.json()
+
+    status = info_data.get('result', {}).get('status')
+    print(f"Статус отчёта: {status}")
+
+    if status == 'DONE':
+        print("Отчёт готов:")
+#        print(info_data.get('result'))
+        break
+    elif status == 'ERROR':
+        raise Exception("Ошибка при формировании отчёта")
+    else:
+        print("Отчёт ещё не готов, ждём 10 секунд...")
+        time.sleep(10)
+
+# 3. Скачиваем файл отчёта по ссылке себе в папку
+file_url = info_data['result']['file']
+# print(f"Скачиваем файл отчёта по ссылке: {file_url}")
+
+response_file = requests.get(file_url, headers=headers)
+response_file.raise_for_status()
+
+# Сохраняем файл локально
+filename = rf'\\...\ЯМ ГТ {date_report}.xlsx'
+with open(filename, "wb") as f:
+    f.write(response_file.content)
+# Копируем файл ещё в одно место    
+filename2 = rf'\\...\{today_folder}\ЯМ ГТ {date_report}.xlsx'
+shutil.copy(filename, filename2)   
+
+# print(filename)
+print(f"Отчёт сохранён в файл")
