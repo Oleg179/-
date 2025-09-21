@@ -1,0 +1,89 @@
+# Отчёт об остатках на складе ВБ компании
+
+# 1. Запрос на генерацию отчёта
+url = "https://seller-analytics-api.wildberries.ru/api/v1/warehouse_remains"
+
+headers = {
+    "Authorization": "xxxx",  # Замените на реальный токен
+    "accept": "application/json"
+}
+
+# Параметры запроса (передаются в URL, а не в теле)
+params = {
+    "locale": "ru",
+    "groupByBrand": "true",  
+    "groupBySubject": "true",
+    "groupBySa": "true",
+    "groupByNm": "true",
+    "groupByBarcode": "true",
+    "groupBySize": "true",
+    "filterPics": "0",
+    "filterVolume": "0"
+}
+
+response = requests.get(url, headers=headers, params=params)
+data = response.json()
+
+taskId = data.get('data', {}).get('taskId')
+if not taskId:
+    raise Exception("Не удалось получить taskId из ответа")
+
+print("Task ID:", taskId)
+
+# 2. Проверка статуса отчёта
+url_status = f"https://seller-analytics-api.wildberries.ru/api/v1/warehouse_remains/tasks/{taskId}/status"
+
+while True:
+    response_status = requests.get(url_status, headers=headers)
+    status_data = response_status.json()
+    status = status_data.get('data', {}).get('status')
+
+    print(f"Статус: {status}")
+
+    if status == 'done':
+        print("Отчёт готов!")
+        break
+    elif status == 'ERROR':
+        raise Exception("Ошибка при формировании отчёта")
+    else:
+        print("Ждём 10 секунд...")
+        time.sleep(10)
+
+# 3. Получение отчёта
+url_download = f"https://seller-analytics-api.wildberries.ru/api/v1/warehouse_remains/tasks/{taskId}/download"
+response_report = requests.get(url_download, headers=headers)
+report_data = response_report.json()
+
+# 4. Преобразовываем список json в DataFrame
+rows = []
+for item in report_data:
+    top_data = {k: v for k, v in item.items() if k != 'warehouses'}
+    warehouses_dict = {wh['warehouseName']: wh['quantity'] for wh in item['warehouses']}
+    row = {**top_data, **warehouses_dict}
+    rows.append(row)
+
+df = pd.DataFrame(rows)
+
+# 5. Удалить ненужные столбцы
+df = df.drop(columns=['vendorCode', 'barcode', 'techSize'])
+
+# 6. Переименование столбцов
+df = df.rename(columns={
+    'brand': 'Бренд',
+    'subjectName': 'Предмет',
+    'nmId': 'Артикул WB',
+    'volume': 'Объем, л'
+})
+
+# 7. Меняем порядок столбцов
+df = df[['Бренд', 'Предмет', 'Артикул WB', 'Объем, л', 'В пути до получателей', 'В пути возвраты на склад WB', 'Всего находится на складах', 'Коледино', 'Подольск', 'Казань', 'Электросталь', 'Санкт-Петербург Уткина Заводь', 'Краснодар', 'Новосибирск', 'Екатеринбург - Испытателей 14г', 'Екатеринбург - Перспективный 12', 'Тула', 'Атакент', 'Белая дача', 'Невинномысск', 'Белые Столбы', 'Рязань (Тюшевское)', 'СЦ Хабаровск', 'Котовск', 'Самара (Новосемейкино)', 'Волгоград', 'СЦ Барнаул', 'СЦ Ижевск', 'Актобе', 'Чашниково', 'Астана Карагандинское шоссе', 'СЦ Вологда 2', 'Владимир', 'СЦ Ярославль Громова', 'Сарапул', 'СЦ Ереван', 'Воронеж', 'Остальные']]
+
+
+# Сохраняем в Excel файл локально
+filename = r'\\...\ВБ\Остатки_WB_ГТ.xlsx'
+df.to_excel(filename, index=False)
+
+# filename2 = rf'\\...\остатки вб ГТ_{today_report}.xlsx'
+# shutil.copy(filename, filename2) 
+
+print("Отчет успешно сохранен")
