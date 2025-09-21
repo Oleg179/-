@@ -1,0 +1,117 @@
+# Воронка продаж ВБ Галеон Трейд
+import requests
+import pandas as pd
+from datetime import date, datetime, timedelta
+import time
+import os
+import chardet
+import shutil
+import openpyxl
+import warnings
+# URL личного кабинета или API ВБ 
+url = "https://seller-analytics-api.wildberries.ru/api/v2/nm-report/detail"
+
+# Для авторизации, добавьте headers с токеном ЛК
+headers = {
+    "Authorization": "xxxx",  # замените на ваш токен
+    "User-Agent": "Mozilla/5.0",
+    "Accept": "application/json"
+}
+
+
+payload = {
+    "brandNames": [],
+    "objectIDs": [486],
+    "tagIDs": [],
+    "nmIDs": [],
+    "timezone": "Europe/Moscow",
+    "period": {
+        "begin": "2025-09-01 00:00:00",
+        "end": "2025-09-15 23:59:59"
+    },
+    "orderBy": {
+        "field": "ordersSumRub",
+        "mode": "asc"
+    },
+    "page": 1
+}
+
+response = requests.post(url, headers=headers, json=payload)
+
+data = response.json()
+# df = pd.DataFrame(data)
+
+# print(df.head())
+# Извлечь список карточек
+cards = data['data']['cards']
+
+# Собираем данные в список словарей для DataFrame
+rows = []
+for card in cards:
+    row = {
+        'nmID': card.get('nmID'),
+        'vendorCode': card.get('vendorCode'),
+        'brandName': card.get('brandName'),
+        'object_id': card.get('object', {}).get('id'),
+        'object_name': card.get('object', {}).get('name'),
+        
+        # Статистика выбранного периода
+        'selected_begin': card['statistics']['selectedPeriod']['begin'],
+        'selected_end': card['statistics']['selectedPeriod']['end'],
+        'selected_openCardCount': card['statistics']['selectedPeriod']['openCardCount'],
+        'selected_addToCartCount': card['statistics']['selectedPeriod']['addToCartCount'],
+        'selected_ordersCount': card['statistics']['selectedPeriod']['ordersCount'],
+        'selected_ordersSumRub': card['statistics']['selectedPeriod']['ordersSumRub'],
+        'selected_buyoutsCount': card['statistics']['selectedPeriod']['buyoutsCount'],
+        'selected_buyoutsSumRub': card['statistics']['selectedPeriod']['buyoutsSumRub'],
+        'selected_cancelCount': card['statistics']['selectedPeriod']['cancelCount'],
+        'selected_cancelSumRub': card['statistics']['selectedPeriod']['cancelSumRub'],
+        'selected_avgPriceRub': card['statistics']['selectedPeriod']['avgPriceRub'],
+        'selected_avgOrdersCountPerDay': card['statistics']['selectedPeriod']['avgOrdersCountPerDay'],
+        'selected_addToCartPercent': card['statistics']['selectedPeriod']['conversions']['addToCartPercent'],
+        'selected_cartToOrderPercent': card['statistics']['selectedPeriod']['conversions']['cartToOrderPercent'],
+        'selected_buyoutsPercent': card['statistics']['selectedPeriod']['conversions']['buyoutsPercent'],
+        
+        # Статистика предыдущего периода
+        'previous_begin': card['statistics']['previousPeriod']['begin'],
+        'previous_end': card['statistics']['previousPeriod']['end'],
+        'previous_openCardCount': card['statistics']['previousPeriod']['openCardCount'],
+        'previous_addToCartCount': card['statistics']['previousPeriod']['addToCartCount'],
+        'previous_ordersCount': card['statistics']['previousPeriod']['ordersCount'],
+        'previous_ordersSumRub': card['statistics']['previousPeriod']['ordersSumRub'],
+        'previous_buyoutsCount': card['statistics']['previousPeriod']['buyoutsCount'],
+        'previous_buyoutsSumRub': card['statistics']['previousPeriod']['buyoutsSumRub'],
+        'previous_cancelCount': card['statistics']['previousPeriod']['cancelCount'],
+        'previous_cancelSumRub': card['statistics']['previousPeriod']['cancelSumRub'],
+        'previous_avgPriceRub': card['statistics']['previousPeriod']['avgPriceRub'],
+        'previous_avgOrdersCountPerDay': card['statistics']['previousPeriod']['avgOrdersCountPerDay'],
+        'previous_addToCartPercent': card['statistics']['previousPeriod']['conversions']['addToCartPercent'],
+        'previous_cartToOrderPercent': card['statistics']['previousPeriod']['conversions']['cartToOrderPercent'],
+        'previous_buyoutsPercent': card['statistics']['previousPeriod']['conversions']['buyoutsPercent'],
+        
+        # Сравнение периодов
+        'openCardDynamics': card['statistics']['periodComparison']['openCardDynamics'],
+        'addToCartDynamics': card['statistics']['periodComparison']['addToCartDynamics'],
+        'ordersCountDynamics': card['statistics']['periodComparison']['ordersCountDynamics'],
+        'ordersSumRubDynamics': card['statistics']['periodComparison']['ordersSumRubDynamics'],
+        'buyoutsCountDynamics': card['statistics']['periodComparison']['buyoutsCountDynamics'],
+        'buyoutsSumRubDynamics': card['statistics']['periodComparison']['buyoutsSumRubDynamics'],
+        'cancelCountDynamics': card['statistics']['periodComparison']['cancelCountDynamics'],
+        'cancelSumRubDynamics': card['statistics']['periodComparison']['cancelSumRubDynamics'],
+        'avgOrdersCountPerDayDynamics': card['statistics']['periodComparison']['avgOrdersCountPerDayDynamics'],
+        'avgPriceRubDynamics': card['statistics']['periodComparison']['avgPriceRubDynamics'],
+        'periodComparison_addToCartPercent': card['statistics']['periodComparison']['conversions']['addToCartPercent'],
+        'periodComparison_cartToOrderPercent': card['statistics']['periodComparison']['conversions']['cartToOrderPercent'],
+        'periodComparison_buyoutsPercent': card['statistics']['periodComparison']['conversions']['buyoutsPercent'],
+        
+        # Запасы
+        'stocksMp': card['stocks'].get('stocksMp'),
+        'stocksWb': card['stocks'].get('stocksWb')
+    }
+    rows.append(row)
+
+# Создаем DataFrame
+df = pd.DataFrame(rows)
+
+# Сохраняем в Excel
+df.to_excel(r'\\...\Воронка продаж ВБ ГТ.xlsx', index=False)
