@@ -1,0 +1,48 @@
+# Достаем все детские кресла и магазины из поисковой выдачи 
+import requests
+from datetime import datetime
+page = 1
+query = 'Кресло детское'
+max_page = 3
+arr = []
+
+for page in range(1, max_page + 1):
+    res = requests.get(
+        f"https://search.wb.ru/exactmatch/ru/common/v9/search?ab_testid=promoact_2&appType=1&curr=rub&dest=-5817685&hide_dtype=13&lang=ru&page=1&query=%D0%B0%D0%B2%D1%82%D0%BE%D0%BA%D1%80%D0%B5%D1%81%D0%BB%D0%BE%20%D0%B4%D0%B5%D1%82%D1%81%D0%BA%D0%BE%D0%B5%20%D0%B2%20%D0%BC%D0%B0%D1%88%D0%B8%D0%BD%D1%83&resultset=catalog&sort=popular&spp=30&suppressSpellcheck=false&page={page}&query={query}&resultset=catalog&sort=popular"
+    )
+   # Проверяем, что запрос успешен
+    if res.status_code == 200:
+        data = res.json()
+        
+        # Проверяем, есть ли продукты
+        if 'data' in data and 'products' in data['data']:
+            products = data['data']['products']
+            for product in products:
+                # Извлекаем нужные поля
+                brand = product.get('brand')
+                name = product.get('name')
+                supplier = product.get('supplier')
+                
+                # Извлекаем поле total из вложенного словаря price в первом элементе sizes
+                sizes = product.get('sizes', [])
+                total = None
+                if sizes:
+                    price_info = sizes[0].get('price', {})
+                    total = price_info.get('total')
+
+                # Добавляем информацию в массив
+                arr.append({
+                    'brand': brand,
+                    'name': name,
+                    'supplier': supplier,
+                    'total': total
+                })
+
+# Теперь в arr содержатся нужные данные
+import pandas as pd
+
+df = pd.DataFrame(arr)
+
+df.columns = ['brand', 'name', 'supplier', 'total']
+
+df
