@@ -1,0 +1,31 @@
+import requests
+# Метод предоставляет долю продаж брендов продавца (рейтинг, доля в рублях, доля в кол-ве)
+import pandas as pd
+# URL личного кабинета или API ВБ 
+url = "https://seller-analytics-api.wildberries.ru/api/v1/analytics/brand-share"
+
+# Если требуется авторизация, добавьте headers с токеном или куки
+headers = {
+    "Authorization": "xxxx",  # замените на ваш токен
+    "User-Agent": "Mozilla/5.0",
+    "Accept": "application/json"
+}
+
+params = {
+    "dateFrom": "2025-06-01",
+    "dateTo": "2025-06-28",
+    "parentId" : "883",
+    "brand": "SIGER"
+}
+
+# Запрос
+response = requests.get(url, headers=headers, params=params)
+data = response.json()
+
+if data.get('report'):
+    # Преобразуем список словарей в DataFrame
+    df = pd.DataFrame(data['report'])
+    
+    # Сохраняем в Excel файл
+    df.to_excel(r'\\SRV-DATA1\Data\Департамент Маркетинга\Отдел аналитики\Файлообменник\БашкатовОС\Доли продаж на МП\Python WB\SIGER.xlsx', index=False)
+df
